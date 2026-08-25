@@ -1,0 +1,27 @@
+# 示例配置 — 仅用于本地开发（`npx wrangler dev --local`）
+# 正式部署以 Cloudflare Dashboard 为 source of truth：
+#   - 生产环境变量、域名、D1 Bindings 等请在 Dashboard → Worker → Settings 中配置
+#   - 不要将本文件直接用于 `wrangler deploy` 覆盖 Dashboard
+# 本地使用：复制为 wrangler.toml 后填入你的 database_id
+#   cp wrangler.toml.example wrangler.toml
+#   npx wrangler d1 create study-planner-db  # 获取 database_id 后填入下文
+#   npx wrangler dev --local
+
+name = "study-planner-d1-sync"
+main = "src/index.ts"
+compatibility_date = "2024-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 本地 D1 绑定（Dashboard 生产请在 Dashboard 配置，不要依赖此文件）
+[[d1_databases]]
+binding = "DB"
+database_name = "study-planner-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# 可选：允许的 CORS Origin（逗号分隔），默认本地允许全部
+# ALLOWED_ORIGINS = "https://your-app.pages.dev,http://localhost:5173"
+
+# Secrets 请勿写在此处，通过 Dashboard 或 `npx wrangler secret put` 设置：
+# - API_TOKEN（可选，浏览器需配 VITE_D1_API_TOKEN）
+# - SUPABASE_JWT_SECRET（可选）

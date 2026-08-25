@@ -66,7 +66,7 @@ React 18 + TS(strict) + Vite + PWA，**唯一状态所有者 `src/AppContext.tsx
 
 ```bash
 npm run typecheck
-npm test                          # 102/103 为当前基线（含 1 个上游失败 + 6 个 AI 单测）
+npm test                          # 124/125 为当前基线（含 1 个上游失败 + 9 AI + 8 Health + 11 D1 单测）
 npm run build
 npm run dev -- --port 5199
 git fetch upstream && git log --oneline upstream/main ^main   # 查看上游新增

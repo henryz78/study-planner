@@ -14,3 +14,5 @@ coverage/
 study-plan-*.json
 # local cleanup archive
 archive/
+# Cloudflare Worker 本地配置（Dashboard 为线上 source of truth）
+worker/d1/wrangler.toml

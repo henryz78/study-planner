@@ -54,6 +54,18 @@
 - **决定**：不单独包含 `initialReason`。`initialAction` 已由 `initialReason` 派生（`too-tiring→load / future-replan→replan / 有日期→current-conflicts / 否则→center`），单独纳入会与 `initialAction` 重复且在同 `initialAction` 下造成不必要重初始化；当前调用方仅经 `openAdjustment(date, reason)` 传入 `current-conflicts`，其余 reason 仅在对话框内部分支选择时生效，无需跨入口区分。若未来新增映射到同一 `initialAction` 但需不同初始态的 reason，再将 key 扩展为 `initialReason|initialAction|...`。
 - **后果**：保持 `src/components/AdjustmentIntentDialog.tsx:139` 最小 key，无扩大修改。
 
+## D-09 — 2026-08-26 · Cloudflare D1 作为可选云同步后端
+
+- **背景**：Supabase 为唯一云同步（`study_snapshots` 表，乐观并发 revision），需新增 D1 选项且保留 Supabase、遵守 upstream-first 与 local-first。
+- **决定**：新增 `worker/d1/**`（Wrangler + D1 schema + Worker 乐观并发 409）与前端 `src/services/sync/**`（`config.ts` provider 选择 auto/supabase/d1/local + `d1.ts` fetch 8s 超时 + `cloud.ts` 抽象层复用 `preparePortableState`/`validateStateInput`），`App.tsx` 仅改 import 指向 `cloud` 并在 Settings 新增 `云同步` 选择（auto 默认 D1 优先），`supabase.ts` 零重写；`VITE_D1_WORKER_URL` 未配置或 Worker 不可用时 `getEffectiveProvider` 回退到 `supabase`/`local`，`upload/download` 抛错仅置 `syncStatus=error` 不阻塞 `IndexedDB` 本地读写。
+- **后果**：`UPSTREAM_STRATEGY.md §6` 扩展 D1 安全说明；`STATUS.md/UPSTREAM_DELTA.md` 记录；新增 7 单测覆盖 provider 选择、409、404、网络失败的 local-first；`git diff main..HEAD` 仅新增 `worker/d1/**` + `sync/**` + `.env.example` + App 极小改动。
+
+## D-10 — 2026-08-26 · D1 独立身份与 /snapshot 访问控制
+
+- **背景**：初版 D1 仍通过 `resolveUserId` 强制要求 Supabase 登录，`VITE_D1_WORKER_URL` 未配时无法独立同步；`Worker /snapshot` 仅凭 `userId` 查询，若 `userId` 可枚举则可读写他人数据；`VITE_D1_API_TOKEN` 在前端 `getAuthHeader` 中原返回空，未形成有效浏览器→Worker 鉴权，目标是 D1 可作为不依赖 Supabase 的独立后端。
+- **决定**：前端新增 `getOrCreateD1UserId()`（`crypto.randomUUID` 持久化至 `study-planner:d1-user-id`，高熵 possession 凭证），`cloud.ts` 新增 `getSyncUserIdForProvider`（`d1` 时优先 Supabase 会话否则回退本机 key），`d1.ts` 的 `getAuthHeader` 在 `VITE_D1_API_TOKEN` 配置时实际发送 `Authorization: Bearer`；`App.tsx` 同步门控与队列按 `getEffectiveSyncProvider()` 分流（Supabase 仍需 `sessionUser`，D1 仅需 `getOrCreateD1UserId()` 且 `tutorial` 屏蔽、`cloudReady` 复用），侧边栏状态与 `uploadCloudNow`/`online` 重试均按 provider 区分；`Worker` 保持 `API_TOKEN` 可选校验（有则 401，无则依赖 `userId` 高熵不可枚举，无列表接口）。
+- **后果**：`VITE_SUPABASE_*` 全不配时 `provider=auto/d1` 仍可 `uploadSnapshot`/`downloadSnapshot`（11 单测覆盖独立 key 生成、独立上传、API_TOKEN 透传）；`/snapshot` 无法通过遍历 `userId` 窃取（需知悉目标 UUID + 可选 Bearer），`AGENTS.md/UPSTREAM_STRATEGY.md` 的 localStorage/BYOK 说明与 `STATUS.md` 手动验证同步更新。
+
 ## 待决策（Phase 1 后）
 
 - 是否引入 Topic/Mastery 最小模型扩展（`ROADMAP.md P2-4`）

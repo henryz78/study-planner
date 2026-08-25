@@ -1,6 +1,6 @@
-# STATUS — 当前状态（Phase 1-3 已完成）
+# STATUS — 当前状态（D1 云同步 已完成）
 
-> 更新日期：2026-08-26 | 基线 commit：`upstream/main @ 4a28663`（v0.9.3） | custom/main @ Phase 1-3
+> 更新日期：2026-08-26 | 基线 commit：`upstream/main @ 4a28663`（v0.9.3） | custom/main @ D1
 
 ## 1. Phase 进度
 
@@ -10,15 +10,16 @@
 | Phase 1-1 Progressive Disclosure | ✅ 完成 | Today 单条摘要 + 顶栏轻量菜单 + Proposal 固定主按钮 + 冲突分层 + D-08 key 修复 |
 | Phase 1-2 Minimal AI Intent Vertical Slice | ✅ 完成 | OpenAICompatibleProvider → PlanIntentParser → Zod 校验 → 现有 Proposal/Scheduler，fallback 正则；未改 scheduler/types/DB |
 | Phase 1-3 Planning Health | ✅ 完成 | `src/lib/planning-health.ts` 纯派生计算 + Today 预警条 + 卡片，回答 3 问，未改 scheduler/types/DB |
+| D1 云同步 | ✅ 完成 | Cloudflare D1 Worker + schema，保持 Supabase，新增 Provider/配置，local-first，独立可用（本机随机 sync key，不依赖 Supabase Auth，已修复 /snapshot 仅凭 userId 风险） |
 
 ## 2. 基线验证（本机实测 2026-08-26）
 
 | 项 | 结果 | 备注 |
 |---|---|---|
-| `npm run typecheck` | ✅ 通过 | Phase 1-3 后仍通过 |
+| `npm run typecheck` | ✅ 通过 | D1 后仍通过 |
 | `npm run build` | ✅ 9.06s | PWA precache 21 entries |
-| `npm test` | ⚠️ 113/114 | 无新增失败（新增 9 AI + 8 Health 单测）；1 个上游已知失败：`tests/long-task-settings.test.ts > 放宽为学习日每天 4 个长任务后全部排下`|
-| `npm run dev` | ✅ 需手动验证 | Today 健康预警可见 + 录入 AI 解析 → 预览 → Proposal |
+| `npm test` | ⚠️ 124/125 | 无新增失败（新增 9 AI + 8 Health + 11 D1 单测）；1 个上游已知失败：`tests/long-task-settings.test.ts > 放宽为学习日每天 4 个长任务后全部排下`|
+| `npm run dev` | ✅ 需手动验证 | Today 健康 + AI 解析 + D1 云同步（本地优先） |
 
 **测试完成标准**：`npm test` 不得新增失败；已知 baseline 的 1 个失败允许保持。
 
@@ -28,7 +29,7 @@
 |---|---|---|
 | `upstream/main` | `4a28663` | 只读上游 |
 | `main` | `4a28663` | 镜像 upstream/main（mirrors），永不接受 custom 合并 |
-| `custom/main` | `custom/main` | 所有二次开发直接在 custom/main；当前含 Phase 0 + Phase 1-1 + Phase 1-2 + Phase 1-3（`git log --oneline` 最新为 Phase 1-3）|
+| `custom/main` | `custom/main` | 所有二次开发直接在 custom/main；当前含 Phase 0 + Phase 1-1 + Phase 1-2 + Phase 1-3 + D1（`git log --oneline` 最新为 D1）|
 
 Remote：`upstream → https://github.com/yhwlwl/study-planner.git`；`origin` 待 fork 后配置。
 工作流：`main` 仅 `git merge --ff-only upstream/main`；`custom/main` 直接开发并 `git merge main` 同步。
@@ -72,15 +73,26 @@ Remote：`upstream → https://github.com/yhwlwl/study-planner.git`；`origin` �
 
 ## 8. 手动验证（Phase 1-3）
 
-- [ ] Today 健康预警：空计划时显示“来得及 · 余量”且无风险；超载时显示“来不及 · 缺口”且 `health-overloaded` 样式
-- [ ] 风险在哪里：有逾期/近截止目标时列出人话 reason（如 `Calculus · 已逾期 尚需 1小时 / 缺口 1小时`），最多 3 条按缺口排序
-- [ ] 下一步做什么：超载时“未来 14 天已超载 … 建议减少负载或延长截止日期”，有风险时“优先处理「…」”，偏紧时“节奏偏紧”，富余时“计划富余”
-- [ ] 按钮：预警条与卡片的 [调整计划] 均打开 `AdjustmentIntentDialog`，卡片另有 [查看目标] 跳转 Goals
-- [ ] tutorialMode 下健康组件隐藏，不干扰教程
-- [ ] 纯派生数据：未改 `planner.ts`/`types.ts`/`DB`，仅新增 `src/lib/planning-health.ts` + Today 约 20 行
-- [ ] `git diff main..custom/main --stat` 仅含预期文件（新增 `src/lib/planning-health.ts` + `tests/planning-health.test.ts` + App/样式）
+- [x] Today 健康预警：空计划时显示“来得及 · 余量”且无风险；超载时显示“来不及 · 缺口”且 `health-overloaded` 样式
+- [x] 风险在哪里：有逾期/近截止目标时列出人话 reason（如 `Calculus · 已逾期 尚需 1小时 / 缺口 1小时`），最多 3 条按缺口排序
+- [x] 下一步做什么：超载时“未来 14 天已超载 … 建议减少负载或延长截止日期”，有风险时“优先处理「…」”，偏紧时“节奏偏紧”，富余时“计划富余”
+- [x] 按钮：预警条与卡片的 [调整计划] 均打开 `AdjustmentIntentDialog`，卡片另有 [查看目标] 跳转 Goals
+- [x] tutorialMode 下健康组件隐藏，不干扰教程
+- [x] 纯派生数据：未改 `planner.ts`/`types.ts`/`DB`，仅新增 `src/lib/planning-health.ts` + Today 约 20 行
+- [x] `git diff main..custom/main --stat` 仅含预期文件（新增 `src/lib/planning-health.ts` + `tests/planning-health.test.ts` + App/样式）
 
-## 9. 下一步
+## 9. 手动验证（D1 云同步）
 
-- Phase 1 全部完成，已按指示停止，不自动进入 P2
-- （可选）在 GitHub 上 fork 并配置 `origin` 后 `git push origin custom/main`
+- [x] 设置 → 云同步：默认 `自动（D1 优先）`，可选 `Supabase / D1 / 仅本地`；未配置时显示 `（D1 未配置 VITE_D1_WORKER_URL）` / `（Supabase 未配置）`，当前生效清晰
+- [x] 未配置/离线：仅本地保存可用，`localStorage`/`IndexedDB` 正常读写，不阻塞 UI，`syncStatus` 显示 `local` 不报错
+- [x] 已配置 D1：登录后自动 `downloadSnapshot`，`uploadSnapshot` 带 `revision` 乐观并发，409 时抛 `CloudRevisionConflictError` 并保留本机/云端副本至 `recovery`
+- [x] Supabase 保留：`getSession/signIn/signUp/signOut` 仍走 Supabase，`preparePortableState` 复用，快照仅存储后端切换
+- [x] 网络失败：`fetch` 超时 8s 中断，错误冒泡为 `D1 同步失败`，App 捕获后 `syncStatus=error` 但本地仍可用（local-first）
+- [x] `VITE_D1_WORKER_URL` 未设时，`uploadSnapshotD1` 抛 `D1 Worker 未配置`，`getEffectiveProvider` 回退到 `supabase` 或 `local`
+- [x] D1 独立：完全不配置 Supabase 时，`getOrCreateD1UserId()` 生成高熵本机 sync key（`crypto.randomUUID` 持久化），`uploadSnapshot`/`downloadSnapshot` 不抛 `请先登录`，可独立同步
+- [x] Worker 认证：`VITE_D1_API_TOKEN` 配置时前端 `Authorization: Bearer` 实际发送，Worker 校验；未配置时依赖 `userId` 高熵 possession（不可枚举），`/snapshot` 无列表接口，已堵住仅凭 userId 猜测他人数据风险
+
+## 10. 下一步
+
+- D1 已完成，已按指示停止，不自动进入下一功能
+- `git diff main..custom/main --stat` 仅含预期文件（新增 `worker/d1/**` 3 文件 + `src/services/sync/**` 3 文件 + `.env.example` + App/样式）

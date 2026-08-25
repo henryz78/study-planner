@@ -42,7 +42,7 @@ import { NumericInput } from './components/NumericInput'
 import { PwaUpdatePrompt } from './components/PwaUpdatePrompt'
 import { adjustmentPolicyForEvent, eventWithPreferences } from './lib/adjustment'
 import { applyConflictDecisions, mergeConstraintExceptions } from './lib/conflicts'
-import { CloudRevisionConflictError, downloadSnapshot, getSession, preparePortableState, signIn, signOut, signUp, supabase, supabaseConfigured, uploadSnapshot } from './lib/supabase'
+import { CloudRevisionConflictError, downloadSnapshot, getSession, preparePortableState, signIn, signOut, signUp, supabase, supabaseConfigured, uploadSnapshot } from './services/sync/cloud'
 import { buildCalendarPrintHtml, buildCalendarSvg, downloadSvgAsPng, safeExportName } from './lib/exports'
 import { Analytics } from '@vercel/analytics/react'
 import { SCHEMA_VERSION } from './types'
@@ -50,6 +50,9 @@ import { validateStateInput } from './lib/state-schema'
 import { getTimerElapsedSeconds } from './lib/timer'
 import { APP_VERSION, GITHUB_REPO_URL } from './lib/constants'
 import { AI_CONFIG_SECURITY_NOTE, loadAIConfig, saveAIConfig } from './services/ai/config'
+import { loadSyncConfig, saveSyncConfig, d1EnvConfigured, getEffectiveProvider, getOrCreateD1UserId, SYNC_SECURITY_NOTE_D1 } from './services/sync/config'
+import { supabaseConfigured as supabaseRawConfigured } from './lib/supabase'
+import { getEffectiveSyncProvider } from './services/sync/cloud'
 import './styles.css'
 import './tutorial.css'
 
@@ -558,9 +561,17 @@ export default function App() {
   }
 
   const uploadCloudNow = async () => {
-    if (!sessionUser?.id) throw new Error('请先登录')
-    const userId = sessionUser.id
-    const scope = `user:${userId}`
+    const provider = getEffectiveSyncProvider()
+    let userId: string
+    let scope: string
+    if (provider === 'd1') {
+      userId = getOrCreateD1UserId()
+      scope = `user:${userId}`
+    } else {
+      if (!sessionUser?.id) throw new Error('请先登录')
+      userId = sessionUser.id
+      scope = `user:${userId}`
+    }
     const queue = cloudSaveQueue.current
     if (queue.scope !== scope) resetCloudQueue(scope)
     if (queue.timer) window.clearTimeout(queue.timer)
@@ -668,6 +679,7 @@ export default function App() {
   }, [clearDataSpace, loadDataSpace])
 
   useEffect(() => {
+    if (getEffectiveSyncProvider() !== 'supabase') return
     if (!ready || !sessionUser?.id || tutorialSession || isTutorialNamespace(namespace)) return
     let cancelled = false
     setCloudReady(false)
@@ -771,13 +783,116 @@ export default function App() {
     return () => { cancelled = true }
   }, [ready, sessionUser?.id, tutorialSession, namespace, loadDataSpace, setDataSpace])
 
+  // D1 独立同步：不依赖 Supabase 登录，使用本机随机 sync key
   useEffect(() => {
+    if (getEffectiveSyncProvider() !== 'd1') return
+    if (!ready || tutorialSession || isTutorialNamespace(namespace)) return
+    let cancelled = false
+    setCloudReady(false)
+    setSyncStatus('restoring')
+    const bootstrapD1 = async () => {
+      try {
+        const d1UserId = getOrCreateD1UserId()
+        const [localState, cloudSnapshot] = await Promise.all([
+          loadLocalState(namespace),
+          downloadSnapshot(d1UserId),
+        ])
+        if (cancelled) return
+        const normalizedLocal = localState ? normalizeState(localState) : undefined
+        const cloud = cloudSnapshot?.state
+        if (cloud) {
+          const normalizedCloud = normalizeState({
+            ...cloud,
+            replanHistory: normalizedLocal?.replanHistory ?? [],
+            conflictBackups: normalizedLocal?.conflictBackups ?? [],
+            planVersions: normalizedLocal?.planVersions ?? [],
+          })
+          const localNewer = normalizedLocal && Date.parse(normalizedLocal.updatedAt) > Date.parse(normalizedCloud.updatedAt)
+          if (localNewer) {
+            const useLocal = window.confirm(`检测到此设备的本地计划比 D1 云端更新。\n\n确定：使用本机版本并上传云端。\n取消：恢复云端版本，并把本机版本保存为冲突备份。`)
+            if (useLocal) {
+              await setDataSpace(namespace, normalizedLocal, false)
+              const uploaded = await uploadSnapshot(normalizedLocal, d1UserId, cloudSnapshot?.revision)
+              resetCloudQueue(`user:${d1UserId}`, normalizedLocal.updatedAt, uploaded.revision)
+              setCloudMessage('已使用较新的本机版本并同步到 D1 云端。')
+            } else {
+              const backup = JSON.stringify(preparePortableState(normalizedLocal))
+              normalizedCloud.conflictBackups = [...(normalizedLocal.conflictBackups ?? []).slice(-2), backup].slice(-3)
+              await setDataSpace(namespace, normalizedCloud, false)
+              resetCloudQueue(`user:${d1UserId}`, normalizedCloud.updatedAt, cloudSnapshot?.revision)
+              setCloudMessage('已恢复 D1 云端版本，本机版本已保留为冲突备份。')
+            }
+          } else {
+            if (normalizedLocal && normalizedLocal.updatedAt !== normalizedCloud.updatedAt) {
+              const backup = JSON.stringify(preparePortableState(normalizedLocal))
+              normalizedCloud.conflictBackups = [...(normalizedLocal.conflictBackups ?? []).slice(-2), backup].slice(-3)
+            }
+            await setDataSpace(namespace, normalizedCloud, false)
+            resetCloudQueue(`user:${d1UserId}`, normalizedCloud.updatedAt, cloudSnapshot?.revision)
+            setCloudMessage('已从 D1 云端恢复计划。')
+          }
+          if (!cancelled) {
+            setCloudReady(true)
+            setSyncStatus('saved')
+            setDataSwitching(false)
+          }
+          return
+        }
+        if (normalizedLocal && normalizedLocal.taskGroups.length > 0) {
+          const shouldUpload = window.confirm('D1 云端没有计划，但此设备保存了一份本地计划。是否把它作为 D1 云端初始版本？')
+          if (shouldUpload) {
+            const uploaded = await uploadSnapshot(normalizedLocal, d1UserId)
+            resetCloudQueue(`user:${d1UserId}`, normalizedLocal.updatedAt, uploaded.revision)
+            setCloudReady(true)
+            setSyncStatus('saved')
+            setCloudMessage('已把本机计划设为 D1 云端初始版本。')
+            setDataSwitching(false)
+          } else {
+            setSyncStatus('local')
+            setCloudReady(false)
+            setDataSwitching(false)
+          }
+          return
+        }
+        setSyncStatus('local')
+        setCloudReady(false)
+        setDataSwitching(false)
+      } catch (error) {
+        if (!cancelled) {
+          setCloudReady(false)
+          setSyncStatus('error')
+          setCloudMessage(error instanceof Error ? error.message : 'D1 云端恢复失败')
+          setDataSwitching(false)
+        }
+      }
+    }
+    void bootstrapD1()
+    return () => { cancelled = true }
+  }, [ready, tutorialSession, namespace, loadDataSpace, setDataSpace])
+
+  useEffect(() => {
+    if (getEffectiveSyncProvider() !== 'supabase') return
     if (!ready || !sessionUser?.id || !cloudReady || namespace !== `user:${sessionUser.id}`) return
     queueCloudSave(state, sessionUser.id)
   }, [state, ready, sessionUser?.id, cloudReady, namespace])
 
+  // D1 queue: local-first, not tied to Supabase session
+  useEffect(() => {
+    if (getEffectiveSyncProvider() !== 'd1') return
+    if (!ready || !cloudReady || tutorialSession || isTutorialNamespace(namespace)) return
+    const d1UserId = getOrCreateD1UserId()
+    queueCloudSave(state, d1UserId)
+  }, [state, ready, cloudReady, namespace, tutorialSession])
+
   useEffect(() => {
     const retry = () => {
+      const provider = getEffectiveSyncProvider()
+      if (provider === 'd1') {
+        if (!cloudReady) return
+        const d1UserId = getOrCreateD1UserId()
+        queueCloudSave(stateRef.current, d1UserId, 0)
+        return
+      }
       if (!sessionUser?.id || !cloudReady || namespace !== `user:${sessionUser.id}`) return
       queueCloudSave(stateRef.current, sessionUser.id, 0)
     }
@@ -1143,7 +1258,7 @@ export default function App() {
         </nav>
         <div className="sidebar-bottom">
           <a className="sidebar-repo-link" href={GITHUB_REPO_URL} target="_blank" rel="noreferrer" title={state.settings.sidebarCollapsed ? 'GitHub 仓库' : undefined}><Github size={18}/><span>GitHub 仓库</span><ArrowUpRight className="sidebar-repo-arrow" size={14}/></a>
-          <div className={`sync-status ${sessionUser && !tutorialActive ? 'online' : ''} ${syncStatus === 'error' && !tutorialActive ? 'sync-error' : ''}`}>{tutorialActive || !sessionUser ? <CloudOff size={16}/> : <Cloud size={16}/>}<span>{tutorialActive ? '交互教程 · 独立本地空间' : !sessionUser ? '游客 · 仅本地保存' : syncStatus === 'restoring' ? '正在从云端恢复' : syncStatus === 'queued' ? '已保存到本机 · 等待云同步' : syncStatus === 'saving' ? '正在同步到云端' : syncStatus === 'error' ? '云同步失败' : cloudReady ? '已自动保存到云端' : '等待初始化个人计划'}</span></div>
+          <div className={`sync-status ${(sessionUser || getEffectiveSyncProvider() === 'd1') && !tutorialActive ? 'online' : ''} ${syncStatus === 'error' && !tutorialActive ? 'sync-error' : ''}`}>{tutorialActive ? <CloudOff size={16}/> : getEffectiveSyncProvider() === 'd1' ? <Cloud size={16}/> : !sessionUser ? <CloudOff size={16}/> : <Cloud size={16}/>}<span>{tutorialActive ? '交互教程 · 独立本地空间' : getEffectiveSyncProvider() === 'd1' ? (syncStatus === 'restoring' ? '正在从 D1 恢复' : syncStatus === 'queued' ? '已保存到本机 · 等待 D1 同步' : syncStatus === 'saving' ? '正在同步到 D1' : syncStatus === 'error' ? 'D1 同步失败' : cloudReady ? '已自动保存到 D1' : 'D1 · 仅本地保存') : !sessionUser ? '游客 · 仅本地保存' : syncStatus === 'restoring' ? '正在从云端恢复' : syncStatus === 'queued' ? '已保存到本机 · 等待云同步' : syncStatus === 'saving' ? '正在同步到云端' : syncStatus === 'error' ? '云同步失败' : cloudReady ? '已自动保存到云端' : '等待初始化个人计划'}</span></div>
           <button className={`collapse-button ${tutorialRestricted ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialRestricted || undefined} title={tutorialRestricted ? '教程中保持当前布局' : state.settings.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-label={state.settings.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} onClick={() => tutorialRestricted ? tutorialNotice('教程中暂时保持当前布局') : updateSettings({ sidebarCollapsed: !state.settings.sidebarCollapsed })}><ChevronLeft size={18}/><span>{state.settings.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}</span></button>
           <small className="sidebar-version">v{APP_VERSION}</small>
         </div>
@@ -2530,6 +2645,12 @@ function SettingsPage({ sessionUserId, sessionEmail, cloudMessage, onCloudUpload
     setAiConfig(next)
     saveAIConfig(next)
   }
+  const [syncConfig, setSyncConfig] = useState(() => loadSyncConfig())
+  const updateSyncConfig = (patch: Partial<import('./services/sync/config').SyncConfig>) => {
+    const next = { ...syncConfig, ...patch }
+    setSyncConfig(next)
+    saveSyncConfig(next)
+  }
   useEffect(() => setPlanNameDraft(state.settings.planName), [state.settings.planName])
   useEffect(() => { void listRecoverySnapshots(namespace).then(setRecoverySnapshots) }, [namespace, state.schemaVersion])
   const versionDiff = versionOpen ? previewPlanVersion(versionOpen.id) : undefined
@@ -2609,6 +2730,7 @@ function SettingsPage({ sessionUserId, sessionEmail, cloudMessage, onCloudUpload
         </SettingsSection>
       </div>
     </details>
+    <SettingsSection title="云同步" description="本地优先：未登录或云不可用时仅本地保存。保留 Supabase，新增 Cloudflare D1 可选。"><div className="form-stack"><label className="field"><span>同步提供方</span><select value={syncConfig.provider} onChange={event => updateSyncConfig({ provider: event.target.value as import('./services/sync/config').SyncProviderId })}><option value="auto">自动（D1 优先）</option><option value="supabase">Supabase</option><option value="d1">Cloudflare D1</option><option value="local">仅本地</option></select></label><p className="muted-text" style={{ fontSize: 11, lineHeight: 1.6 }}>{SYNC_SECURITY_NOTE_D1}</p><p className="muted-text" style={{ fontSize: 11, lineHeight: 1.6 }}>当前生效：{getEffectiveProvider(syncConfig, supabaseRawConfigured)} {d1EnvConfigured ? '' : '（D1 未配置 VITE_D1_WORKER_URL）'} {supabaseRawConfigured ? '' : '（Supabase 未配置）'}</p></div></SettingsSection>
     <SettingsSection title="计划基础" description="目标日期已统一迁移到“目标”页面，这里只保留计划边界和默认风格，避免多个可编辑真相。"><div className="form-grid"><label className="field span-2"><span>计划名称</span><input value={planNameDraft} onChange={event=>setPlanNameDraft(event.target.value)} onBlur={()=>planNameDraft!==state.settings.planName&&updateSettings({planName:planNameDraft})}/></label><label className="field"><span>开始日期</span><input type="date" value={state.settings.startDate} onChange={event=>prepareSettingsChange({startDate:event.target.value}, '调整计划开始日期', 'availability-change')}/></label><label className="field"><span>结束日期</span><input type="date" value={state.settings.endDate} onChange={event=>prepareSettingsChange({endDate:event.target.value}, '调整计划结束日期', 'availability-change')}/></label><label className="field"><span>默认排期风格</span><select value={state.settings.planningMode} onChange={event=>updateSettings({planningMode:event.target.value as AppState['settings']['planningMode']})}><option value="sprint">冲刺</option><option value="balanced">平衡</option><option value="relaxed">轻松</option></select></label></div></SettingsSection>
     <SettingsSection title="显示" description="跟随系统适合多设备使用；深色模式会同步调整页面、弹窗、表单和统计图表的对比度。"><div className="form-grid"><label className="field"><span>颜色模式</span><select value={state.settings.theme} onChange={event=>updateSettings({theme:event.target.value as AppState['settings']['theme']})}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div></SettingsSection>
     <details className="settings-advanced"><summary>高级排期参数</summary><div className="settings-advanced-body">
