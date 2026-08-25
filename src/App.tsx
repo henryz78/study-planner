@@ -11,6 +11,7 @@ import type { AppState, Assignment, BufferPreference, DayType, PlanAdjustmentPol
 import { clampDate, constraintsForDate, dateRange, dayTypeLabel, fmtDate, fmtWeekday, getCapacity, getDayConfig, isDateProtected, minutesText, shiftDate, timestampForDate, todayISO } from './lib/date'
 import { actualLearningSnapshot, allDurationSuggestions, analyzePlan, checkAssignmentPlacement, effectiveMinutes, planningDayLoad, predictCompletion, previewPreparedChange } from './lib/planner'
 import { allGoalProgress, nearestRelevantGoalDate } from './lib/goals'
+import { computePlanningHealth } from './lib/planning-health'
 import { uid } from './lib/id'
 import { addInferredCompletionEntry, appendStatusEvent } from './lib/execution'
 import { cloneActiveState, hydratePortableState } from './lib/state'
@@ -1161,7 +1162,7 @@ export default function App() {
         </header>
         {tutorialActive && tutorialCoachConfig && tutorialStepValue && <TutorialCoachmark step={tutorialStepValue} config={tutorialCoachConfig} onRestart={() => { void restartTutorial() }} onExit={() => { void exitTutorial(false) }}/>}
         <div className="page-content">
-          {page === 'today' && <TodayPage onNavigate={navigate} onPrepared={openPrepared} onAddTask={date => openAddTask(date, 'prefer-date')} onReview={openReview} todayOverride={tutorialSession?.anchorDate} tutorialMode={tutorialRestricted} tutorialStep={tutorialStepValue} tutorialTargetId={tutorialStepValue === 'execute-partial' ? TUTORIAL_PARTIAL_ASSIGNMENT_ID : TUTORIAL_EXECUTE_ASSIGNMENT_ID} onTutorialTaskRecorded={mode => { if (mode === 'complete') advanceTutorialStable('execute-complete', 'execute-partial'); else advanceTutorialStable('execute-partial', 'review-entry') }} onTutorialBlocked={tutorialNotice}/>}
+          {page === 'today' && <TodayPage onNavigate={navigate} onPrepared={openPrepared} onAddTask={date => openAddTask(date, 'prefer-date')} onReview={openReview} onOpenAdjustment={() => openAdjustment()} todayOverride={tutorialSession?.anchorDate} tutorialMode={tutorialRestricted} tutorialStep={tutorialStepValue} tutorialTargetId={tutorialStepValue === 'execute-partial' ? TUTORIAL_PARTIAL_ASSIGNMENT_ID : TUTORIAL_EXECUTE_ASSIGNMENT_ID} onTutorialTaskRecorded={mode => { if (mode === 'complete') advanceTutorialStable('execute-complete', 'execute-partial'); else advanceTutorialStable('execute-partial', 'review-entry') }} onTutorialBlocked={tutorialNotice}/>}
           {page === 'calendar' && <CalendarPage onPrepared={openPrepared} onOpenAdjustment={date => openAdjustment(date, 'current-conflicts')} onAddTask={date => openAddTask(date, 'prefer-date')} tutorialMode={tutorialRestricted} tutorialHighlightDates={tutorialSession?.highlightDates} onTutorialBlocked={tutorialNotice}/>}
           {page === 'tasks' && <TasksPage onOpenIntake={() => navigate('intake')} onPrepared={openPrepared} tutorialMode={tutorialRestricted} onTutorialBlocked={tutorialNotice}/>}
           <Suspense fallback={<div className="page-loading"><div className="spinner"/><p>正在载入页面……</p></div>}>
@@ -1436,7 +1437,7 @@ function ActiveTimerReturnButton({ onOpen }: { onOpen: () => void }) {
   return <button className={`active-timer-return ${state.timer.running ? 'running' : 'paused'}`} onClick={onOpen}><Clock3 size={16}/><span><strong>{state.timer.running ? '正在计时' : '计时暂停'}</strong><small>{elapsed}</small></span></button>
 }
 
-function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride, tutorialMode = false, tutorialStep, tutorialTargetId, onTutorialTaskRecorded, onTutorialBlocked }: { onNavigate: (page: Page) => void; onPrepared: (state: AppState, event: PlanChangeEvent) => void; onAddTask: (date: string) => void; onReview: (date: string) => void; todayOverride?: string; tutorialMode?: boolean; tutorialStep?: TutorialStep; tutorialTargetId?: string; onTutorialTaskRecorded?: (mode: 'complete' | 'partial') => void; onTutorialBlocked?: (message?: string) => void }) {
+function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, onOpenAdjustment, todayOverride, tutorialMode = false, tutorialStep, tutorialTargetId, onTutorialTaskRecorded, onTutorialBlocked }: { onNavigate: (page: Page) => void; onPrepared: (state: AppState, event: PlanChangeEvent) => void; onAddTask: (date: string) => void; onReview: (date: string) => void; onOpenAdjustment?: () => void; todayOverride?: string; tutorialMode?: boolean; tutorialStep?: TutorialStep; tutorialTargetId?: string; onTutorialTaskRecorded?: (mode: 'complete' | 'partial') => void; onTutorialBlocked?: (message?: string) => void }) {
   const { state, namespace, commit, captureDailyPlanBaseline, startTimer } = useApp()
   const rawToday = todayOverride ?? todayISO()
   const defaultDate = clampDate(rawToday, state.settings.startDate, state.settings.endDate)
@@ -1476,6 +1477,7 @@ function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride,
   const pendingPastTasks = state.assignments.filter(item => item.status !== 'done' && item.scheduledDate && item.scheduledDate < rawToday && !groups.get(item.groupId)?.recurring)
   const resumableBatch = [...state.intakeBatches].reverse().find(batch => (batch.status === 'editing' || batch.status === 'pending' || batch.status === 'calculating') && batch.taskGroups.some(item => !item.appliedAt))
   const resumableBatchCount = resumableBatch?.taskGroups.filter(item => !item.appliedAt).length ?? 0
+  const health = useMemo(() => tutorialMode ? null : computePlanningHealth(state, rawToday), [state, rawToday, tutorialMode])
   useEffect(() => {
     const hasNotice = Boolean(resumableBatch && (tasks.length > 0 || state.assignments.length > 0)) || Boolean(reviewReminderDate) || pendingPastTasks.length > 0
     if (!hasNotice) setNoticeExpanded(false)
@@ -1643,6 +1645,26 @@ function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride,
         </div>}
       </div>
     })()}
+    {!tutorialMode && health && (
+      <section className={`planning-health-banner health-${health.status}`}>
+        <div className="planning-health-summary">
+          <span className="health-icon">{health.status === 'overloaded' ? '⚠️' : health.status === 'tight' ? '⏳' : '✅'}</span>
+          <span><strong>{health.status === 'overloaded' ? '来不及' : health.status === 'tight' ? '偏紧' : '来得及'}</strong> · 未来 {health.horizonDays} 天 {health.gapMinutes >= 0 ? `余量 ${minutesText(health.gapMinutes)}` : `缺口 ${minutesText(-health.gapMinutes)}`} · {health.nextAction.label}</span>
+        </div>
+        <button className="text-button" onClick={() => onOpenAdjustment?.()}>调整计划</button>
+      </section>
+    )}
+    {!tutorialMode && health && (
+      <section className="planning-health-card">
+        <div className="planning-health-card-head"><strong>风险在哪里</strong><span>{health.nextAction.detail}</span></div>
+        {health.risks.length ? (
+          <ul className="planning-health-risks">{health.risks.map(r => <li key={r.goalId}>{r.reason}</li>)}</ul>
+        ) : (
+          <p className="muted-text">暂无目标风险{health.status === 'comfortable' ? '，可保持当前节奏' : ''}</p>
+        )}
+        <div className="planning-health-actions"><button className="secondary-button" onClick={() => onOpenAdjustment?.()}>调整计划</button><button className="text-button" onClick={() => onNavigate('goals')}>查看目标</button></div>
+      </section>
+    )}
     <section className="compact-metrics today-load-metrics">
       <div><span>原计划</span><strong>{minutesText(originalPlanned)}</strong></div>
       <div><span>已发生实际</span><strong>{minutesText(actualTotal)}</strong></div>
