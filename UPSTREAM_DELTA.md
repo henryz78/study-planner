@@ -33,10 +33,12 @@
 | `tests/planning-health.test.ts` | 新增 | Phase 1-3 | Health 8 单测（空/超载/逾期/下一步 + today/horizonEnd/远期/零容量/去重边界） | 无 |
 | `worker/d1/schema.sql` | 新增 | D1 | D1 表 `study_snapshots`（user_id PK, data TEXT, revision, client_updated_at, updated_at） | 无 |
 | `worker/d1/wrangler.toml.example` | 新增 | D1 | Cloudflare Worker 本地示例配置（`cp wrangler.toml.example wrangler.toml` 后本地 `wrangler dev`），生产以 Dashboard 为 source of truth，不提交 `worker/d1/wrangler.toml`（已加入 `.gitignore`） | 无 |
+| `worker/d1/src/index.ts` | 新增 | D1 | Worker 逻辑（已迁移至 `functions/api/d1/snapshot.ts`，保留作本地调试参考，线上以 Pages 为准） | 无 |
+| `functions/api/d1/snapshot.ts` | 新增 | D1 | Cloudflare Pages Function 集成（同 Worker 逻辑，Dashboard 绑定 D1，直接复用 `DB`，`/`/health 兼容） | 无 |
 | `worker/d1/src/index.ts` | 新增 | D1 | Worker 逻辑：GET /snapshot, PUT /snapshot, CORS, 409 乐观并发 | 无 |
 | `.env.example` | 修改 | D1 | 新增 `VITE_D1_WORKER_URL` | 低 |
-| `src/services/sync/config.ts` | 新增 | D1 | Sync provider 选择（auto/supabase/d1/local），localStorage + `isD1EnvConfigured()` + `getOrCreateD1UserId()` 独立身份 | 无 |
-| `src/services/sync/d1.ts` | 新增 | D1 | D1 客户端：`uploadSnapshotD1/downloadSnapshotD1`，8s 超时，409→`CloudRevisionConflictError`，`VITE_D1_API_TOKEN` Bearer 鉴权，local-first | 无 |
+| `src/services/sync/config.ts` | 新增 | D1 | Sync provider 选择（auto/supabase/d1/local），localStorage + `isD1EnvConfigured()`（含 Pages 同源 `''`）+ `getOrCreateD1UserId()` 独立身份 | 无 |
+| `src/services/sync/d1.ts` | 新增 | D1 | D1 客户端：`uploadSnapshotD1/downloadSnapshotD1`（`VITE_D1_WORKER_URL` 或同源 `/api/d1/snapshot`），8s 超时，409→`CloudRevisionConflictError`，`VITE_D1_API_TOKEN` Bearer 鉴权，local-first | 无 |
 | `src/services/sync/cloud.ts` | 新增 | D1 | 抽象层：`getEffectiveSyncProvider()` + `getSyncUserIdForProvider()`（D1 时回退本机 sync key，不依赖 Supabase），委托 Supabase/D1/local，复用 `preparePortableState` | 无 |
 | `tests/d1-sync.test.ts` | 新增 | D1 | D1 11 单测（provider 选择/回退/网络失败/409/成功/未配置/独立 key/独立上传/API_TOKEN 鉴权） | 无 |
 

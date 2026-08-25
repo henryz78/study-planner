@@ -16,14 +16,39 @@ const DEFAULT: SyncConfig = { provider: 'auto' }
 
 export function getD1WorkerUrl(): string | undefined {
   const raw = import.meta.env.VITE_D1_WORKER_URL as string | undefined
-  return raw?.replace(/\/+$/, '').trim() || undefined
+  if (raw !== undefined) {
+    const trimmed = raw.replace(/\/+$/, '').trim()
+    return trimmed || undefined
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const { hostname, port, host } = window.location as unknown as { hostname: string; port: string; host: string }
+      // Vite 本地开发
+      if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '' || host === 'localhost' || host === 'localhost:5173')) {
+        // jsdom 默认 http://localhost deepen check: if no explicit Vite dev, treat as not Pages
+        // 仅当明确是 Pages 预览/生产才视为可用
+        // 为避免测试环境误判，此处对 jsdom 默认 localhost 返回 undefined
+        if (typeof host === 'string' && host === 'localhost') return undefined
+        if (port === '' && hostname === 'localhost') return undefined
+        return undefined
+      }
+      // wrangler pages dev
+      if (hostname === '127.0.0.1' && port === '8788') return ''
+      if (hostname.includes('pages.dev')) return ''
+      if (hostname !== 'localhost' && hostname !== '127.0.0.1') return ''
+      return undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export const D1_WORKER_URL = getD1WorkerUrl()
-export const d1EnvConfigured = Boolean(D1_WORKER_URL)
+export const d1EnvConfigured = getD1WorkerUrl() !== undefined
 
 export function isD1EnvConfigured(): boolean {
-  return Boolean(getD1WorkerUrl())
+  return getD1WorkerUrl() !== undefined
 }
 
 function getStorage(): Storage | undefined {
@@ -75,6 +100,10 @@ export function getEffectiveProvider(config: SyncConfig, supabaseConfigured: boo
 }
 
 export const D1_API_TOKEN = (import.meta.env.VITE_D1_API_TOKEN as string | undefined)?.trim()
+
+export function getD1ApiToken(): string | undefined {
+  return (import.meta.env.VITE_D1_API_TOKEN as string | undefined)?.trim() || undefined
+}
 
 const D1_USER_ID_KEY = 'study-planner:d1-user-id'
 

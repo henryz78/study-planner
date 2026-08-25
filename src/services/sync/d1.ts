@@ -1,7 +1,7 @@
 import type { AppState } from '../../types'
 import { validateStateInput } from '../../lib/state-schema'
 import { preparePortableState } from '../../lib/supabase'
-import { D1_API_TOKEN, getD1WorkerUrl, isD1EnvConfigured } from './config'
+import { getD1ApiToken, getD1WorkerUrl, isD1EnvConfigured } from './config'
 
 export function getD1Configured(): boolean {
   return isD1EnvConfigured()
@@ -31,12 +31,9 @@ function validateCloudSnapshot(raw: unknown, revision: unknown): CloudSnapshot {
 }
 
 async function getAuthHeader(): Promise<Record<string, string>> {
-  // D1 独立模式：若配置了 VITE_D1_API_TOKEN，则作为 Bearer 随每次请求发送，形成有效的浏览器→Worker 鉴权
-  // 该 Token 是部署级共享密钥（VITE_ 会暴露在前端 bundle，仅防匿名爬取，生产建议改用 HttpOnly Cookie 或 Supabase JWT 校验）
   try {
-    if (D1_API_TOKEN) return { Authorization: `Bearer ${D1_API_TOKEN}` }
-    // 兼容：若配了 Supabase，尝试携带 Supabase access_token（Worker 可选校验）
-    // 为避免循环依赖，不在此直接 import supabase；Worker 当前信任 userId  possession
+    const token = getD1ApiToken()
+    if (token) return { Authorization: `Bearer ${token}` }
     return {}
   } catch {
     return {}
@@ -45,7 +42,10 @@ async function getAuthHeader(): Promise<Record<string, string>> {
 
 export async function uploadSnapshotD1(state: AppState, userId: string, expectedRevision?: number): Promise<{ savedAt: string; revision: number }> {
   const workerUrl = getD1WorkerUrl()
-  if (!workerUrl) throw new Error('D1 Worker 未配置 (VITE_D1_WORKER_URL)')
+  if (workerUrl === undefined) throw new Error('D1 Worker 未配置 (VITE_D1_WORKER_URL 或 Pages 同源 /api/d1)')
+
+  const base = workerUrl // '' 表示同源相对路径
+  const endpoint = base ? `${base}/api/d1/snapshot` : '/api/d1/snapshot'
   if (!userId) throw new Error('请先登录')
   const now = new Date().toISOString()
   const portable = preparePortableState(state)
@@ -62,7 +62,7 @@ export async function uploadSnapshotD1(state: AppState, userId: string, expected
   const timeout = setTimeout(() => controller.abort(), 8000)
   let response: Response
   try {
-    response = await fetch(`${workerUrl}/snapshot`, {
+    response = await fetch(endpoint, {
       method: 'PUT',
       headers,
       body: JSON.stringify(body),
@@ -95,14 +95,15 @@ export async function uploadSnapshotD1(state: AppState, userId: string, expected
 
 export async function downloadSnapshotD1(userId: string): Promise<CloudSnapshot | undefined> {
   const workerUrl = getD1WorkerUrl()
-  if (!workerUrl) throw new Error('D1 Worker 未配置')
+  if (workerUrl === undefined) throw new Error('D1 Worker 未配置')
+  const endpoint = workerUrl ? `${workerUrl}/api/d1/snapshot` : '/api/d1/snapshot'
   if (!userId) throw new Error('请先登录')
   const headers: Record<string, string> = { ...(await getAuthHeader()) }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 8000)
   let response: Response
   try {
-    response = await fetch(`${workerUrl}/snapshot?userId=${encodeURIComponent(userId)}`, {
+    response = await fetch(`${endpoint}?userId=${encodeURIComponent(userId)}`, {
       headers,
       signal: controller.signal,
     })
