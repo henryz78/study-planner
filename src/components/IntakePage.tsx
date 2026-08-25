@@ -17,6 +17,10 @@ import { NumericInput } from './NumericInput'
 import { SingleTaskDialog } from './SingleTaskDialog'
 import type { TaskCreationKind } from './AddTaskDialog'
 import { TUTORIAL_NEW_GOAL_ID, type TutorialStep } from '../lib/tutorial'
+import { loadAIConfig, isAIConfigured } from '../services/ai/config'
+import { OpenAICompatibleProvider } from '../services/ai/provider'
+import { AIIntentParser, isCreateTasksDraft, isTransientDraft, prepareStateFromAIDraft } from '../services/ai/intent-parser'
+import type { PlanChangeEventDraft } from '../lib/intent'
 
 const priorities: Array<{ value: Priority; label: string }> = [
   { value: 5, label: '核心' }, { value: 3, label: '高' }, { value: 2, label: '中' }, { value: 1, label: '低' }, { value: 0, label: '可选' },
@@ -77,6 +81,9 @@ export function IntakePage({ onPrepared, onNavigate, onAddTask, addRequest, onAd
   const fileRef = useRef<HTMLInputElement>(null)
   const handledAddRequestId = useRef<string>()
   const [showFirstScheduleCue, setShowFirstScheduleCue] = useState(false)
+  const [aiParsing, setAiParsing] = useState(false)
+  const [aiDraft, setAiDraft] = useState<PlanChangeEventDraft | null>(null)
+  const [aiError, setAiError] = useState('')
   const tutorialNaturalChoice = tutorialMode && tutorialStep === 'intake-entry'
   const tutorialNaturalEntry = tutorialMode && (tutorialStep === 'intake-source' || tutorialStep === 'intake-parse')
   const tutorialNaturalAllowed = tutorialNaturalChoice || tutorialNaturalEntry
@@ -231,6 +238,72 @@ export function IntakePage({ onPrepared, onNavigate, onAddTask, addRequest, onAd
       setImportBusy(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  const handleParse = async () => {
+    if (!pasteText.trim()) return
+    if (tutorialMode) {
+      setImportResult(parsePastedText(pasteText))
+      if (tutorialStep === 'intake-source') onTutorialParsed?.()
+      return
+    }
+    const config = loadAIConfig()
+    if (isAIConfigured(config)) {
+      setAiParsing(true)
+      setAiError('')
+      setAiDraft(null)
+      try {
+        const provider = new OpenAICompatibleProvider({ baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model })
+        const parser = new AIIntentParser(provider, config)
+        const draft = await parser.parseUserIntent(pasteText, state as unknown as import('../types').AppStatePortable)
+        if (isTransientDraft(draft)) {
+          setAiDraft(draft)
+          setImportResult(undefined)
+          return
+        }
+        if (isCreateTasksDraft(draft)) {
+          const aiTasks = (draft.metadata as Record<string, unknown>).aiTasks as import('../types').TaskGroupDraft[]
+          const rows = aiTasks.map((d, idx) => ({ sourceRow: idx + 1, draft: d, issues: validateImportedDraft(d, idx + 1) }))
+          const result = rebuildImportResult({ drafts: [], issues: [], skippedRows: 0 }, rows)
+          setImportResult(result)
+          if (tutorialStep === 'intake-source') onTutorialParsed?.()
+          return
+        }
+        setAiDraft(draft)
+        setImportResult(undefined)
+        return
+      } catch (error) {
+        setAiError(error instanceof Error ? error.message : String(error))
+        setImportResult(parsePastedText(pasteText))
+        if (tutorialStep === 'intake-source') onTutorialParsed?.()
+        return
+      } finally {
+        setAiParsing(false)
+      }
+    }
+    setImportResult(parsePastedText(pasteText))
+    if (tutorialStep === 'intake-source') onTutorialParsed?.()
+  }
+
+  const handleAiDraftApply = () => {
+    if (!aiDraft) return
+    if (isTransientDraft(aiDraft)) {
+      setAiDraft(null)
+      setPasteOpen(false)
+      setPasteText('')
+      return
+    }
+    const prepared = prepareStateFromAIDraft(state, aiDraft)
+    if (prepared) {
+      setAiDraft(null)
+      setPasteOpen(false)
+      setPasteText('')
+      setImportResult(undefined)
+      setAiError('')
+      onPrepared(prepared.state, prepared.event)
+      return
+    }
+    setAiError('未找到匹配的目标或任务，请在目标/任务页确认标题后重试')
   }
 
   return <div className="intake-page">
@@ -398,16 +471,32 @@ export function IntakePage({ onPrepared, onNavigate, onAddTask, addRequest, onAd
       }}
     />
 
-    <Modal open={pasteOpen} title={importResult ? '确认导入结果' : '自然语言录入 / 粘贴清单'} onClose={() => { setPasteOpen(false); setImportResult(undefined) }} wide mobileFullscreen>
-      {!importResult ? <div className="intake-paste-form">
-        <label className="field"><span>每行一个任务，或直接粘贴表格</span><textarea data-tutorial-target={tutorialNaturalEntry ? 'tutorial-natural-text' : undefined} autoFocus rows={12} value={pasteText} readOnly={tutorialNaturalEntry} onChange={event => setPasteText(event.target.value)} placeholder={'数学卷 8 套，每套 90 分钟\n物理错题整理 12 次，每次 30 分钟\n\n也可以粘贴列：任务组、科目、数量、预计时长、优先级'}/><small>系统只解析并生成预览，不会直接修改正式计划。</small></label>
-      </div> : <fieldset className="tutorial-import-preview-fieldset" disabled={tutorialNaturalEntry}><ImportPreview result={importResult} onChange={setImportResult}/></fieldset>}
+    <Modal open={pasteOpen} title={aiDraft ? 'AI 识别结果' : importResult ? '确认导入结果' : '自然语言录入 / 粘贴清单'} onClose={() => { setPasteOpen(false); setImportResult(undefined); setAiDraft(null); setAiError('') }} wide mobileFullscreen>
+      {aiParsing ? <div className="intake-paste-form"><p className="muted-text">AI 正在解析，请稍候…</p></div>
+        : aiDraft ? <div className="intake-ai-draft">
+          <div className="intake-ai-draft-head"><strong>{aiDraft.title}</strong><span>{aiDraft.description}</span></div>
+          {isTransientDraft(aiDraft) && <div className="alert warning"><span>当前系统暂不保存掌握度/章节等 Topic/Mastery 信息，已识别但未写入计划。</span></div>}
+          {!isTransientDraft(aiDraft) && !isCreateTasksDraft(aiDraft) && <div className="intake-ai-draft-meta"><small>类型：{aiDraft.type} · 将生成调整预览，确认后才改变正式计划。</small></div>}
+          {aiError && <p className="danger-text">{aiError}</p>}
+        </div>
+        : !importResult ? <div className="intake-paste-form">
+          <label className="field"><span>每行一个任务，或直接粘贴表格</span><textarea data-tutorial-target={tutorialNaturalEntry ? 'tutorial-natural-text' : undefined} autoFocus rows={12} value={pasteText} readOnly={tutorialNaturalEntry} onChange={event => setPasteText(event.target.value)} placeholder={'数学卷 8 套，每套 90 分钟\n物理错题整理 12 次，每次 30 分钟\n\n也可以粘贴列：任务组、科目、数量、预计时长、优先级'}/><small>系统只解析并生成预览，不会直接修改正式计划。{!tutorialMode && isAIConfigured(loadAIConfig()) ? ' 已启用 AI 解析，失败时自动回退到正则。' : !tutorialMode ? ' 可在设置中启用 AI 解析。' : ''}</small></label>
+          {aiError && <p className="danger-text">{aiError}</p>}
+        </div> : <><fieldset className="tutorial-import-preview-fieldset" disabled={tutorialNaturalEntry}><ImportPreview result={importResult} onChange={setImportResult}/></fieldset>{aiError && <p className="danger-text" style={{ marginTop: 8 }}>{aiError}（已回退到正则）</p>}</>}
       <div className="modal-actions intake-import-actions">
-        <label className="checkbox-field"><input type="checkbox" disabled={tutorialNaturalEntry} checked={skipDuplicates} onChange={event => setSkipDuplicates(event.target.checked)}/><span>跳过与当前批次相同的任务组</span></label>
-        <button className="secondary-button" onClick={() => { setPasteOpen(false); setImportResult(undefined) }}>取消</button>
-        {importResult && importSource === 'paste' && <button className="secondary-button" onClick={() => setImportResult(undefined)}>返回修改原文</button>}
-        {!importResult ? <button className="primary-button" data-tutorial-target={tutorialStep === 'intake-source' ? 'tutorial-parse' : undefined} disabled={!pasteText.trim()} onClick={() => { setImportResult(parsePastedText(pasteText)); if (tutorialStep === 'intake-source') onTutorialParsed?.() }}>解析并预览</button>
-          : <button className="primary-button" data-tutorial-target={tutorialStep === 'intake-parse' ? 'tutorial-import-confirm' : undefined} disabled={!importResult.drafts.length || !active} onClick={() => importDrafts(importResult, importSource)}>{tutorialMode && tutorialStep === 'intake-parse' ? '确认录入' : '加入当前批次'}</button>}
+        {aiDraft ? <>
+          <button className="secondary-button" onClick={() => { setAiDraft(null); setAiError('') }}>返回修改原文</button>
+          <button className="secondary-button" onClick={() => { setPasteOpen(false); setAiDraft(null); setAiError('') }}>取消</button>
+          {isTransientDraft(aiDraft)
+            ? <button className="primary-button" onClick={handleAiDraftApply}>知道了</button>
+            : <button className="primary-button" onClick={handleAiDraftApply}>生成调整预览</button>}
+        </> : <>
+          <label className="checkbox-field"><input type="checkbox" disabled={tutorialNaturalEntry} checked={skipDuplicates} onChange={event => setSkipDuplicates(event.target.checked)}/><span>跳过与当前批次相同的任务组</span></label>
+          <button className="secondary-button" onClick={() => { setPasteOpen(false); setImportResult(undefined); setAiDraft(null); setAiError('') }}>取消</button>
+          {importResult && importSource === 'paste' && <button className="secondary-button" onClick={() => setImportResult(undefined)}>返回修改原文</button>}
+          {!importResult ? <button className="primary-button" data-tutorial-target={tutorialStep === 'intake-source' ? 'tutorial-parse' : undefined} disabled={!pasteText.trim() || aiParsing} onClick={() => void handleParse()}>{aiParsing ? '解析中…' : '解析并预览'}</button>
+            : <button className="primary-button" data-tutorial-target={tutorialStep === 'intake-parse' ? 'tutorial-import-confirm' : undefined} disabled={!importResult.drafts.length || !active} onClick={() => importDrafts(importResult, importSource)}>{tutorialMode && tutorialStep === 'intake-parse' ? '确认录入' : '加入当前批次'}</button>}
+        </>}
       </div>
     </Modal>
   </div>

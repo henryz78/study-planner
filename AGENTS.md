@@ -31,7 +31,7 @@ React 18 + TS(strict) + Vite + PWA，**唯一状态所有者 `src/AppContext.tsx
 
 - AI **不直接生成日程、不直接写 DB、不直接提交正式计划**；输出必须是 `PlanChangeEventDraft` 经 Zod 校验后进入现有 dispatcher。
 - Phase 1 **仅支持现有模型可表达的 intent**（任务创建/可用时间变更/目标期限变更/优先级/执行差异重排）。对"第 5 章掌握 30%"类 Topic/Mastery 输入，仅识别并告知用户"暂不保存"，以 transient 方式处理，**禁止为 demo 而扩展 `types.ts`**。
-- Provider 第一版仅 `OpenAICompatibleProvider`；Ollama / explainer 后加。Key 安全见 `UPSTREAM_STRATEGY.md §6`：BYOK 存 IndexedDB 需提示非加密安全存储，服务端 Key 必须走 Cloudflare Worker Secret。
+- Provider 第一版仅 `OpenAICompatibleProvider`；Ollama / explainer 后加。Key 安全见 `UPSTREAM_STRATEGY.md §6`：BYOK 存浏览器本机存储（当前实现为 localStorage）需提示非加密安全存储，服务端 Key 必须走 Cloudflare Worker Secret。
 
 ## 5. 术语
 
@@ -66,7 +66,7 @@ React 18 + TS(strict) + Vite + PWA，**唯一状态所有者 `src/AppContext.tsx
 
 ```bash
 npm run typecheck
-npm test                          # 96/97 为当前基线（含 1 个上游失败）
+npm test                          # 102/103 为当前基线（含 1 个上游失败 + 6 个 AI 单测）
 npm run build
 npm run dev -- --port 5199
 git fetch upstream && git log --oneline upstream/main ^main   # 查看上游新增

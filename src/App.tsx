@@ -48,6 +48,7 @@ import { SCHEMA_VERSION } from './types'
 import { validateStateInput } from './lib/state-schema'
 import { getTimerElapsedSeconds } from './lib/timer'
 import { APP_VERSION, GITHUB_REPO_URL } from './lib/constants'
+import { AI_CONFIG_SECURITY_NOTE, loadAIConfig, saveAIConfig } from './services/ai/config'
 import './styles.css'
 import './tutorial.css'
 
@@ -2501,6 +2502,12 @@ function SettingsPage({ sessionUserId, sessionEmail, cloudMessage, onCloudUpload
   const [replacementPreview,setReplacementPreview]=useState<{label:string;state:AppState}>()
   const [recoverySnapshots,setRecoverySnapshots]=useState<DataRecoverySnapshot[]>([])
   const fileRef=useRef<HTMLInputElement>(null)
+  const [aiConfig, setAiConfig] = useState(() => loadAIConfig())
+  const updateAiConfig = (patch: Partial<import('./services/ai/config').AIConfig>) => {
+    const next = { ...aiConfig, ...patch }
+    setAiConfig(next)
+    saveAIConfig(next)
+  }
   useEffect(() => setPlanNameDraft(state.settings.planName), [state.settings.planName])
   useEffect(() => { void listRecoverySnapshots(namespace).then(setRecoverySnapshots) }, [namespace, state.schemaVersion])
   const versionDiff = versionOpen ? previewPlanVersion(versionOpen.id) : undefined
@@ -2563,6 +2570,23 @@ function SettingsPage({ sessionUserId, sessionEmail, cloudMessage, onCloudUpload
   }
   return <div className="settings-stack">
     <SettingsSection title="演示教程" description="教程运行在独立演示空间，不会修改你的真实计划；也可以从“使用教程”页面重新打开。"><div className="button-wrap"><button className="secondary-button" onClick={onStartTutorial}>重新体验完整流程</button></div></SettingsSection>
+    <details className="settings-advanced">
+      <summary>AI 解析（可选）</summary>
+      <div className="settings-advanced-body">
+        <SettingsSection title="AI 解析" description="启用后，自然语言录入将优先走 OpenAI 兼容接口解析为结构化意图，再经 Zod 校验后进入现有预览；失败自动回退到正则。">
+          <div className="form-stack">
+            <Toggle checked={aiConfig.enabled} onChange={value => updateAiConfig({ enabled: value })} label="启用 AI 解析" />
+            <div className="form-grid">
+              <label className="field"><span>接口地址 (Base URL)</span><input value={aiConfig.baseUrl} onChange={event => updateAiConfig({ baseUrl: event.target.value })} placeholder="https://api.openai.com" /></label>
+              <label className="field"><span>模型</span><input value={aiConfig.model} onChange={event => updateAiConfig({ model: event.target.value })} placeholder="gpt-4o-mini" /></label>
+              <label className="field span-2"><span>API Key (BYOK)</span><input type="password" value={aiConfig.apiKey} onChange={event => updateAiConfig({ apiKey: event.target.value })} placeholder="sk-..." /></label>
+            </div>
+            <p className="muted-text" style={{ fontSize: 11, lineHeight: 1.6 }}>{AI_CONFIG_SECURITY_NOTE}</p>
+            <p className="muted-text" style={{ fontSize: 11, lineHeight: 1.6 }}>支持的意图：新建任务、可用时间变更、目标期限变更、优先级调整、执行差异重排；对“第 5 章掌握 30%”等掌握度输入仅识别并提示暂不保存。</p>
+          </div>
+        </SettingsSection>
+      </div>
+    </details>
     <SettingsSection title="计划基础" description="目标日期已统一迁移到“目标”页面，这里只保留计划边界和默认风格，避免多个可编辑真相。"><div className="form-grid"><label className="field span-2"><span>计划名称</span><input value={planNameDraft} onChange={event=>setPlanNameDraft(event.target.value)} onBlur={()=>planNameDraft!==state.settings.planName&&updateSettings({planName:planNameDraft})}/></label><label className="field"><span>开始日期</span><input type="date" value={state.settings.startDate} onChange={event=>prepareSettingsChange({startDate:event.target.value}, '调整计划开始日期', 'availability-change')}/></label><label className="field"><span>结束日期</span><input type="date" value={state.settings.endDate} onChange={event=>prepareSettingsChange({endDate:event.target.value}, '调整计划结束日期', 'availability-change')}/></label><label className="field"><span>默认排期风格</span><select value={state.settings.planningMode} onChange={event=>updateSettings({planningMode:event.target.value as AppState['settings']['planningMode']})}><option value="sprint">冲刺</option><option value="balanced">平衡</option><option value="relaxed">轻松</option></select></label></div></SettingsSection>
     <SettingsSection title="显示" description="跟随系统适合多设备使用；深色模式会同步调整页面、弹窗、表单和统计图表的对比度。"><div className="form-grid"><label className="field"><span>颜色模式</span><select value={state.settings.theme} onChange={event=>updateSettings({theme:event.target.value as AppState['settings']['theme']})}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div></SettingsSection>
     <details className="settings-advanced"><summary>高级排期参数</summary><div className="settings-advanced-body">

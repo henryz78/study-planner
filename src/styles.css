@@ -2506,3 +2506,8 @@ body{
 .proposal-footer-status{font-size:12px;color:var(--muted);text-align:right;line-height:1.4}
 .proposal-footer-wrap .proposal-footer-actions{margin:0;max-width:none;width:100%}
 @media(max-width:760px){.proposal-footer-status{text-align:left}}
+.intake-ai-draft{display:flex;flex-direction:column;gap:12px}
+.intake-ai-draft-head{display:flex;flex-direction:column;gap:4px}
+.intake-ai-draft-head strong{font-size:15px;line-height:1.4}
+.intake-ai-draft-head span{font-size:12px;color:var(--muted);line-height:1.6}
+.intake-ai-draft-meta small{font-size:11px;color:var(--muted)}

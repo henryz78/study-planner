@@ -147,9 +147,9 @@ git rebase custom/main
 ## 6. .gitignore / .env / 敏感信息与 AI Key 安全边界
 
 - `.env` 已在 `.gitignore`；AI provider key 绝不以 `VITE_` 前缀暴露到浏览器构建产物。
-- **IndexedDB 不是秘密保险箱**：同源页面 JavaScript、XSS、浏览器 DevTools 都可能访问 IndexedDB。因此文档与 UI 不得把"存在 IndexedDB"描述为"安全保存"。
+- **浏览器本机存储不是秘密保险箱**：同源页面 JavaScript、XSS、浏览器 DevTools 都可能访问 localStorage / IndexedDB。因此文档与 UI 不得把"存在本机"描述为"安全保存"。
 - 需区分两种模式并在文档/UI 中明确提示：
-  - **用户 BYOK（Bring Your Own Key）**：允许存在本机 IndexedDB，但必须提示"存储在浏览器本机，不代表加密安全存储；同源脚本与 DevTools 可访问"。
+  - **用户 BYOK（Bring Your Own Key）**：允许存在浏览器本机存储（当前实现为 localStorage），但必须提示"存储在浏览器本机，不代表加密安全存储；同源脚本与 DevTools 可访问"。
   - **服务端 API Key（我们自己的 Key）**：**绝对不能放前端**。如需提供官方 AI 能力，应走 `Frontend → Cloudflare Worker → AI API`，真正的 Key 放在 Cloudflare Secret（`wrangler secret put`）。前端仅持有指向 Worker 的 URL，不持有 Key。
 - Phase 1 不一定立即实现 Worker，但 `docs/customization/ROADMAP.md` 与 AI 配置页文案必须把此边界写准确。
 - 新增的 AI 配置页需明确提示 BYOK 的存储位置与风险，而非简单写"不会上传"。

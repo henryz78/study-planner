@@ -48,6 +48,12 @@
 
 ---
 
+## D-08 — 2026-08-26 · AdjustmentIntentDialog 初始化 key 不含 initialReason
+
+- **背景**：审查指出 `hasInitialized` 永不重置导致跨日期/跨 reason 显示过期表单，已修复为 `lastInitKeyRef = initialAction|defaultDate|tutorialMode`；提问是否应直接包含 `initialReason`。
+- **决定**：不单独包含 `initialReason`。`initialAction` 已由 `initialReason` 派生（`too-tiring→load / future-replan→replan / 有日期→current-conflicts / 否则→center`），单独纳入会与 `initialAction` 重复且在同 `initialAction` 下造成不必要重初始化；当前调用方仅经 `openAdjustment(date, reason)` 传入 `current-conflicts`，其余 reason 仅在对话框内部分支选择时生效，无需跨入口区分。若未来新增映射到同一 `initialAction` 但需不同初始态的 reason，再将 key 扩展为 `initialReason|initialAction|...`。
+- **后果**：保持 `src/components/AdjustmentIntentDialog.tsx:139` 最小 key，无扩大修改。
+
 ## 待决策（Phase 1 后）
 
 - 是否引入 Topic/Mastery 最小模型扩展（`ROADMAP.md P2-4`）
