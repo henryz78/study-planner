@@ -8,34 +8,35 @@
 ## 基线
 
 - **Upstream**：`yhwlwl/study-planner @ 4a28663`（v0.9.3），`main` 镜像于 2026-08-25
-- **Custom 基线**：Phase 0 结束时 `custom/main` 尚未创建，`git diff main..custom/main` 为空
+- **Custom 状态**：`custom/main` 已含 Phase 0（`f095baa`）+ Phase 1-1
 
 ## 差异清单（按文件）
-
-> Phase 0 仅新增文档，无产品代码差异。Phase 1 起按以下格式追加。
 
 | 文件 | 变更类型 | 关联 Feature | 说明 | Upstream 冲突风险 |
 |---|---|---|---|---|
 | `docs/customization/**` | 新增 | Phase 0 | 4 份调研与规划文档 | 无（新增文件零冲突） |
 | `AGENTS.md` | 新增 | Phase 0 收尾 | AI agent 工作手册 | 无 |
-| `STATUS.md` | 新增 | Phase 0 收尾 | 当前状态与验证基线 | 无 |
+| `STATUS.md` | 新增/修改 | Phase 0+1-1 | 当前状态与验证基线（本次更新） | 无 |
 | `DECISIONS.md` | 新增 | Phase 0 收尾 | 决策记录 | 无 |
-| `UPSTREAM_DELTA.md` | 新增 | Phase 0 收尾 | 本文件 | 无 |
+| `UPSTREAM_DELTA.md` | 新增/修改 | Phase 0+1-1 | 本文件（本次更新） | 无 |
+| `src/App.tsx` | 修改 | Phase 1-1 | Today 单条摘要折叠（不可随意 dismiss）+ 顶栏轻量问题摘要菜单 + 术语统一（计划执行日/截止日期） | 低-中 |
+| `src/components/AdjustmentIntentDialog.tsx` | 修改 | Phase 1-1 | 修复每次打开重置子表单（仅首次初始化） | 低 |
+| `src/components/ProposalDialog.tsx` | 修改 | Phase 1-1 | 主按钮固定“应用方案”+上方状态行 + 冲突首层4项/更多收纳 | 中 |
+| `src/styles.css` | 修改 | Phase 1-1 | 新增 Today 摘要/顶栏菜单/提案状态行样式 | 低 |
 
-### 模板（后续追加）
+### 待后续（如批准）
 
 ```markdown
 | `src/services/ai/provider.ts` | 新增 | Phase 1-2 Minimal AI Slice | AIProvider + OpenAICompatibleProvider | 无 |
 | `src/services/ai/intent-parser.ts` | 新增 | Phase 1-2 | 实现 PlanIntentParser，Zod 校验 + 正则回退 | 无 |
 | `src/lib/planning-health.ts` | 新增 | Phase 1-3 | Planning Health derived 计算 | 无 |
-| `src/App.tsx` | 修改 | Phase 1-1 | Today 摘要折叠 + 术语统一（约 30 行） | 低 |
-| `src/components/ProposalDialog.tsx` | 修改 | Phase 1-1 | 主按钮固定 + 冲突分层（约 40 行） | 中 |
 | `src/types.ts` | 修改 | P2-4（若批准） | 可选 topicTags 字段 | 中 |
 ```
 
 ## 验证快照
 
-- 2026-08-25：`npm run typecheck` ✅ / `npm test` 96/97 ⚠️（1 上游已知失败）/ `npm run build` ✅
+- 2026-08-25（Phase 0）：`npm run typecheck` ✅ / `npm test` 96/97 ⚠️（1 上游已知失败）/ `npm run build` ✅
+- 2026-08-26（Phase 1-1）：`npm run typecheck` ✅ / `npm test` 96/97 ⚠️（无新增失败）/ `npm run build` ✅ 6.22s / PWA 21 entries
 - 详见 `STATUS.md §2`
 
 ## 注意事项

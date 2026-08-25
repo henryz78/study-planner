@@ -112,6 +112,7 @@ export default function App() {
   const [adjustmentOpen, setAdjustmentOpen] = useState(false)
   const [adjustmentDate, setAdjustmentDate] = useState<string>()
   const [adjustmentReason, setAdjustmentReason] = useState<'current-conflicts' | 'too-tiring' | 'future-replan' | 'execution-difference'>('current-conflicts')
+  const [topIssueMenuOpen, setTopIssueMenuOpen] = useState(false)
   const [deadlineDialogOpen, setDeadlineDialogOpen] = useState(false)
   const [bulkMoveCenterOpen, setBulkMoveCenterOpen] = useState(false)
   const [sessionUser, setSessionUser] = useState<{ id: string; email?: string }>()
@@ -134,6 +135,7 @@ export default function App() {
   const tutorialStepValue = tutorialSession?.step
   const effectiveToday = tutorialSession?.anchorDate ?? todayISO()
   const currentIssueCount = useMemo(() => tutorialActive ? tutorialIssueCount(state, effectiveToday) : analyzePlan(state, effectiveToday).filter(issue => issue.level === 'danger').length, [state, effectiveToday, tutorialActive])
+  const currentDangerIssues = useMemo(() => tutorialActive ? [] : analyzePlan(state, effectiveToday).filter(issue => issue.level === 'danger').slice(0, 6), [state, effectiveToday, tutorialActive])
   const previousUserId = useRef<string>()
   const guestSnapshotRef = useRef<AppState>()
   const [guestImportAvailable, setGuestImportAvailable] = useState(false)
@@ -163,7 +165,19 @@ export default function App() {
     setDeadlineDialogOpen(false)
     setBulkMoveCenterOpen(false)
     setMobileNav(false)
+    setTopIssueMenuOpen(false)
   }
+
+  useEffect(() => {
+    if (!topIssueMenuOpen) return
+    const handlePointer = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.topbar-issue-menu') || target?.closest('.topbar-issue-trigger')) return
+      setTopIssueMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointer)
+    return () => document.removeEventListener('pointerdown', handlePointer)
+  }, [topIssueMenuOpen])
 
   const persistTutorialState = async (next: AppState) => {
     try {
@@ -1038,7 +1052,7 @@ export default function App() {
       'repair-action': { target: 'repair-submit|repair-current', text: '先解决已经发生的问题。' },
       'repair-preview': { target: 'proposal-primary', text: '查看完整变更，确认已完成和锁定任务不动、目标延期风险得到缓解，再应用方案。' },
       'repair-calendar': { text: '刚才的调整已经落到计划里了，先看看任务发生了什么变化。', actionLabel: '继续', onAction: () => advanceTutorialStable('repair-calendar', 'goal-existing') },
-      'goal-existing': { target: 'tutorial-goal-view', text: '排期会考虑目标和截止时间，不只是把任务放进日历。' },
+      'goal-existing': { target: 'tutorial-goal-view', text: '排期会考虑目标和截止日期，不只是把任务放进日历。' },
       'intake-entry': { target: 'tutorial-natural-input', text: '现实里可以直接把一批事情这样告诉计划器。现在试着让它识别。' },
       'intake-source': { target: 'tutorial-parse', text: '示例文字已经填好且保持只读。点“解析并预览”。' },
       'intake-parse': { target: 'tutorial-import-confirm', text: '自然语言已经变成结构化任务。确认后，它们只会进入待排期区。' },
@@ -1137,7 +1151,12 @@ export default function App() {
         <header className="topbar">
           <button className="icon-button mobile-menu" aria-label="打开菜单" onClick={() => setMobileNav(true)}><Menu size={21}/></button>
           <div className="page-heading"><h1>{navItems.find(n => n.id === page)?.label}</h1><span>{tutorialActive ? format(parseISO(effectiveToday), 'yyyy年M月d日') : format(new Date(), 'yyyy年M月d日')}</span></div>
-          <div className="topbar-actions"><ActiveTimerReturnButton onOpen={() => tutorialRestricted ? tutorialNotice('教程中先完成当前步骤，再进入专注计时') : navigate('timer')}/><button data-tutorial-target={tutorialRestricted && (tutorialStepValue === 'repair-entry' || tutorialStepValue === 'future-entry') ? 'replan-center' : undefined} aria-disabled={tutorialRestricted && tutorialStepValue !== 'repair-entry' && tutorialStepValue !== 'future-entry' ? true : undefined} className={`secondary-button ${tutorialRestricted && tutorialStepValue !== 'repair-entry' && tutorialStepValue !== 'future-entry' ? 'tutorial-disabled-control' : ''}`} aria-label={currentIssueCount ? `计划有 ${currentIssueCount} 个问题，打开处理` : '打开计划变化入口'} onClick={() => openAdjustment()}><RefreshCw size={16}/><span>{tutorialActive && tutorialStepValue === 'repair-entry' ? `${currentIssueCount} 个计划问题` : currentIssueCount ? `${currentIssueCount} 个问题需处理` : '计划有变化'}</span></button>{tutorialActive && tutorialStepValue === 'free' && <button className="secondary-button" onClick={() => void exitTutorial(false)}>返回我的计划</button>}</div>
+          <div className="topbar-actions"><ActiveTimerReturnButton onOpen={() => tutorialRestricted ? tutorialNotice('教程中先完成当前步骤，再进入专注计时') : navigate('timer')}/><div className="topbar-issue-wrapper"><button data-tutorial-target={tutorialRestricted && (tutorialStepValue === 'repair-entry' || tutorialStepValue === 'future-entry') ? 'replan-center' : undefined} aria-disabled={tutorialRestricted && tutorialStepValue !== 'repair-entry' && tutorialStepValue !== 'future-entry' ? true : undefined} className={`secondary-button topbar-issue-trigger ${tutorialRestricted && tutorialStepValue !== 'repair-entry' && tutorialStepValue !== 'future-entry' ? 'tutorial-disabled-control' : ''} ${topIssueMenuOpen ? 'active' : ''}`} aria-label={currentIssueCount ? `计划有 ${currentIssueCount} 个问题，打开处理` : '打开计划变化入口'} onClick={() => {
+              if (tutorialActive && (tutorialStepValue === 'repair-entry' || tutorialStepValue === 'future-entry')) { openAdjustment(); return }
+              if (tutorialRestricted && tutorialStepValue !== 'repair-entry' && tutorialStepValue !== 'future-entry') { tutorialNotice(); return }
+              if (currentIssueCount > 0 && !tutorialActive) { setTopIssueMenuOpen(value => !value); return }
+              openAdjustment()
+            }}><RefreshCw size={16}/><span>{tutorialActive && tutorialStepValue === 'repair-entry' ? `${currentIssueCount} 个计划问题` : currentIssueCount ? `${currentIssueCount} 个问题需处理` : '计划有变化'}</span></button>{topIssueMenuOpen && !tutorialActive && <div className="topbar-issue-menu"><div className="topbar-issue-menu-head"><strong>{currentIssueCount} 个问题待处理</strong><span>先看摘要，再决定是否进入调整中心</span></div><ul>{currentDangerIssues.map((issue, index) => <li key={`${issue.date ?? 'all'}-${index}`}><span>{issue.date ?? '计划范围'}</span>{issue.message}</li>)}</ul>{currentIssueCount > currentDangerIssues.length && <small className="topbar-issue-more-hint">还有 {currentIssueCount - currentDangerIssues.length} 项未列出，进入调整中心查看全部</small>}<div className="topbar-issue-menu-actions"><button className="primary-button" onClick={() => { setTopIssueMenuOpen(false); openAdjustment() }}>打开计划调整中心</button><button className="secondary-button" onClick={() => setTopIssueMenuOpen(false)}>关闭</button></div></div>}</div>{tutorialActive && tutorialStepValue === 'free' && <button className="secondary-button" onClick={() => void exitTutorial(false)}>返回我的计划</button>}</div>
         </header>
         {tutorialActive && tutorialCoachConfig && tutorialStepValue && <TutorialCoachmark step={tutorialStepValue} config={tutorialCoachConfig} onRestart={() => { void restartTutorial() }} onExit={() => { void exitTutorial(false) }}/>}
         <div className="page-content">
@@ -1429,6 +1448,7 @@ function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride,
   const [shiftScope, setShiftScope] = useState<ShiftScope>('future')
   const [shiftDays, setShiftDays] = useState(1)
   const [reviewReminderDate, setReviewReminderDate] = useState<string>()
+  const [noticeExpanded, setNoticeExpanded] = useState(false)
   const groups = useMemo(() => new Map(state.taskGroups.map(g => [g.id, g])), [state.taskGroups])
   const tasks = state.assignments.filter(a => a.scheduledDate === date).sort((a,b) => (groups.get(b.groupId)?.priority ?? 0) - (groups.get(a.groupId)?.priority ?? 0) || a.status.localeCompare(b.status))
   const activeTasks = tasks.filter(task => task.status !== 'done')
@@ -1455,6 +1475,10 @@ function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride,
   const pendingPastTasks = state.assignments.filter(item => item.status !== 'done' && item.scheduledDate && item.scheduledDate < rawToday && !groups.get(item.groupId)?.recurring)
   const resumableBatch = [...state.intakeBatches].reverse().find(batch => (batch.status === 'editing' || batch.status === 'pending' || batch.status === 'calculating') && batch.taskGroups.some(item => !item.appliedAt))
   const resumableBatchCount = resumableBatch?.taskGroups.filter(item => !item.appliedAt).length ?? 0
+  useEffect(() => {
+    const hasNotice = Boolean(resumableBatch && (tasks.length > 0 || state.assignments.length > 0)) || Boolean(reviewReminderDate) || pendingPastTasks.length > 0
+    if (!hasNotice) setNoticeExpanded(false)
+  }, [resumableBatch, tasks.length, state.assignments.length, reviewReminderDate, pendingPastTasks.length])
   useEffect(() => {
     if (rawToday < state.settings.startDate || rawToday > state.settings.endDate || state.dailyPlanBaselines.some(item => item.date === rawToday)) return
     captureDailyPlanBaseline(rawToday)
@@ -1597,9 +1621,27 @@ function TodayPage({ onNavigate, onPrepared, onAddTask, onReview, todayOverride,
       </div>
       <div className="button-wrap today-hero-actions"><button className={`primary-button subtle-action ${tutorialMode ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode || undefined} onClick={() => tutorialMode ? onTutorialBlocked?.('教程中暂不新增额外任务') : onAddTask(date)}><Plus size={16}/>添加任务</button><button className={`secondary-button ${tutorialMode ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode || undefined} onClick={() => tutorialMode ? onTutorialBlocked?.('教程中先完成当前步骤，再自由查看月历') : onNavigate('calendar')}><CalendarDays size={16}/>打开月历</button><button className={`secondary-button ${tutorialMode ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode || undefined} onClick={()=>tutorialMode ? onTutorialBlocked?.('教程中暂不执行额外批量顺延') : setShiftOpen(true)}>批量顺延</button>{!(!isToday && !isPast) && <button className={`secondary-button today-review-button ${tutorialMode && tutorialStep === 'review-entry' ? 'tutorial-target' : ''} ${tutorialMode && tutorialStep !== 'review-entry' ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode && tutorialStep !== 'review-entry' ? true : undefined} data-tutorial-target={tutorialMode && tutorialStep === 'review-entry' ? 'today-review' : undefined} data-tutorial-action={tutorialMode && tutorialStep === 'review-entry' ? 'open-review' : undefined} onClick={() => tutorialMode && tutorialStep !== 'review-entry' ? onTutorialBlocked?.('完成高亮任务后再进行今日复盘') : onReview(date)}>{isToday ? '结束今天并复盘' : '复盘此日'}</button>}</div>
     </section>
-    {!tutorialMode && resumableBatch && (tasks.length > 0 || state.assignments.length > 0) && <div className="intake-resume-banner"><div><Inbox size={19}/><span><strong>{resumableBatchCount} 项已录入、待排期</strong><small>确认排期后才会进入今日和月历。</small></span></div><button className="primary-button" onClick={() => onNavigate('intake')}>去排期</button></div>}
-    {!tutorialMode && reviewReminderDate && <div className="review-reminder-banner"><div><strong>{fmtDate(reviewReminderDate)} 还有未完成的复盘</strong><span>这是轻量提醒，不会自动弹窗或反复打断。</span></div><div><button className="secondary-button" onClick={() => setReviewReminderDate(undefined)}>稍后</button><button className="primary-button" onClick={() => { setDate(reviewReminderDate); onReview(reviewReminderDate); setReviewReminderDate(undefined) }}>打开复盘</button></div></div>}
-    {!tutorialMode && pendingPastTasks.length > 0 && <div className="review-reminder-banner pending-task-banner"><div><strong>{pendingPastTasks.length} 项过去未完成任务仍待处理</strong><span>包括复盘后暂不顺延和逾期任务，可到“任务 → 待处理”集中查看。</span></div><div><button className="primary-button" onClick={() => onNavigate('tasks')}>查看待处理任务</button></div></div>}
+    {!tutorialMode && (Boolean(resumableBatch && (tasks.length > 0 || state.assignments.length > 0)) || Boolean(reviewReminderDate) || pendingPastTasks.length > 0) && (() => {
+      const notifications: Array<{ key: string; title: string; detail: string; action?: { label: string; onClick: () => void; variant: 'primary' | 'secondary' } }> = []
+      if (resumableBatch && (tasks.length > 0 || state.assignments.length > 0)) notifications.push({ key: 'intake', title: `${resumableBatchCount} 项已录入、待排期`, detail: '确认排期后才会进入今日和月历。', action: { label: '去排期', onClick: () => onNavigate('intake'), variant: 'primary' } })
+      if (reviewReminderDate) notifications.push({ key: 'review', title: `${fmtDate(reviewReminderDate)} 还有未完成的复盘`, detail: '这是轻量提醒，不会自动弹窗或反复打断。', action: { label: '打开复盘', onClick: () => { setDate(reviewReminderDate); onReview(reviewReminderDate); setReviewReminderDate(undefined) }, variant: 'primary' } })
+      if (pendingPastTasks.length > 0) notifications.push({ key: 'pending', title: `${pendingPastTasks.length} 项过去未完成任务仍待处理`, detail: '包括复盘后暂不顺延和逾期任务，可到“任务 → 待处理”集中查看。', action: { label: '查看待处理任务', onClick: () => onNavigate('tasks'), variant: 'primary' } })
+      const totalPendingItems = resumableBatchCount + (reviewReminderDate ? 1 : 0) + pendingPastTasks.length
+      const summaryText = `⚠️ ${totalPendingItems} 项待处理${notifications.length > 1 ? ` · ${notifications.length} 类` : ''}${pendingPastTasks.length > 0 ? ` · ${pendingPastTasks.length} 项已逾期` : ''}`
+      return <div className="today-notice-summary">
+        <div className="today-notice-summary-bar">
+          <span>{summaryText}</span>
+          <button className="text-button" onClick={() => setNoticeExpanded(value => !value)}>{noticeExpanded ? '收起' : '查看'}</button>
+        </div>
+        {noticeExpanded && <div className="today-notice-details">
+          {notifications.map(item => <div key={item.key} className="today-notice-detail-row">
+            <div><strong>{item.title}</strong><small>{item.detail}</small></div>
+            {item.action && <button className={item.action.variant === 'primary' ? 'primary-button' : 'secondary-button'} onClick={item.action.onClick}>{item.action.label}</button>}
+          </div>)}
+          {reviewReminderDate && <button className="text-button today-notice-dismiss-secondary" onClick={() => setReviewReminderDate(undefined)}>稍后处理复盘提醒</button>}
+        </div>}
+      </div>
+    })()}
     <section className="compact-metrics today-load-metrics">
       <div><span>原计划</span><strong>{minutesText(originalPlanned)}</strong></div>
       <div><span>已发生实际</span><strong>{minutesText(actualTotal)}</strong></div>
@@ -2463,7 +2505,7 @@ function SettingsPage({ sessionUserId, sessionEmail, cloudMessage, onCloudUpload
   useEffect(() => { void listRecoverySnapshots(namespace).then(setRecoverySnapshots) }, [namespace, state.schemaVersion])
   const versionDiff = versionOpen ? previewPlanVersion(versionOpen.id) : undefined
   const exportJson=()=>downloadBlob(JSON.stringify(state,null,2),`study-plan-v0.8-${todayISO()}.json`,'application/json')
-  const exportCsv=()=>{const groups=new Map(state.taskGroups.map(group=>[group.id,group]));const rows=[['科目/类别','任务','计划日期','状态','预计分钟','实际分钟','进度','优先级','排期来源','用户意图']];for(const item of state.assignments){const group=groups.get(item.groupId);if(group)rows.push([group.subject,item.title,item.scheduledDate??'',item.status,String(item.estimatedMinutes),String(item.actualMinutes),String(item.progress),String(group.priority),item.scheduleSource,item.intentStrength])}downloadBlob('\ufeff'+rows.map(row=>row.map(csvEscape).join(',')).join('\n'),`study-plan-${todayISO()}.csv`,'text/csv;charset=utf-8')}
+  const exportCsv=()=>{const groups=new Map(state.taskGroups.map(group=>[group.id,group]));const rows=[['科目/类别','任务','计划执行日','状态','预计分钟','实际分钟','进度','优先级','排期来源','用户意图']];for(const item of state.assignments){const group=groups.get(item.groupId);if(group)rows.push([group.subject,item.title,item.scheduledDate??'',item.status,String(item.estimatedMinutes),String(item.actualMinutes),String(item.progress),String(group.priority),item.scheduleSource,item.intentStrength])}downloadBlob('\ufeff'+rows.map(row=>row.map(csvEscape).join(',')).join('\n'),`study-plan-${todayISO()}.csv`,'text/csv;charset=utf-8')}
   const importJson=(file:File)=>{const reader=new FileReader();reader.onload=()=>{void(async()=>{try{const parsed=JSON.parse(String(reader.result)) as unknown;const validation=validateStateInput(parsed,'json');if(!validation.success||!validation.data){await preserveRecoverySnapshot(namespace,parsed,'invalid-data','json',validation.issues);setRecoverySnapshots(await listRecoverySnapshots(namespace));window.alert(`无法识别这个备份文件。\n\n${validation.issues.slice(0,4).join('\n')}`);return}const incomingVersion=Number(validation.data.schemaVersion??validation.data.version??0);if(incomingVersion<SCHEMA_VERSION)await preserveRecoverySnapshot(namespace,parsed,'before-migration','json');await preserveRecoverySnapshot(namespace,state,'before-replacement','json');setRecoverySnapshots(await listRecoverySnapshots(namespace));setReplacementPreview({label:`导入备份：${file.name}`,state:normalizeState(validation.data)})}catch{window.alert('无法识别这个备份文件。')}})()};reader.readAsText(file)}
   const login=async(kind:'in'|'up')=>{try{setAuthMessage('处理中……');await(kind==='in'?signIn(email,password):signUp(email,password));setAuthMessage(kind==='in'?'登录成功，正在恢复云端计划':'注册请求已提交，请检查邮箱。')}catch(error){setAuthMessage(error instanceof Error?error.message:'操作失败')}}
   const cloudUpload=async()=>{try{const timestamp=await onCloudUpload();setAuthMessage(`已同步：${new Date(timestamp).toLocaleString()}`)}catch(error){setAuthMessage(error instanceof Error?error.message:'同步失败')}}

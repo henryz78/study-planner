@@ -2480,3 +2480,29 @@ body{
   user-select: none;
 }
 .sidebar-collapsed .sidebar-version { padding-inline: 0; font-size: 9px; }
+
+/* Phase 1-1 Progressive Disclosure: Today summary + topbar issue menu + proposal footer */
+.today-notice-summary{margin:14px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);display:flex;flex-direction:column;gap:10px}
+.today-notice-summary-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600}
+.today-notice-summary-bar span{color:var(--text)}
+.today-notice-details{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.today-notice-detail-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;background:var(--muted-surface, #f6f7f9)}
+.today-notice-detail-row strong{font-size:13px}
+.today-notice-detail-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.today-notice-dismiss-secondary{align-self:flex-start;font-size:12px}
+.topbar-issue-wrapper{position:relative;display:inline-flex}
+.topbar-issue-trigger.active{border-color:var(--primary)}
+.topbar-issue-menu{position:absolute;right:0;top:calc(100% + 8px);width:min(360px, 92vw);padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:0 12px 30px rgba(0,0,0,.12);z-index:30;display:flex;flex-direction:column;gap:10px}
+.topbar-issue-menu-head strong{font-size:13px}
+.topbar-issue-menu-head span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.topbar-issue-menu ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto}
+.topbar-issue-menu li{padding:8px 10px;border-radius:10px;background:var(--muted-surface, #f6f7f9);font-size:12px;line-height:1.4}
+.topbar-issue-menu li span{color:var(--muted);font-size:11px;margin-right:6px}
+.topbar-issue-more-hint{color:var(--muted);font-size:11px;line-height:1.5}
+.topbar-issue-menu-actions{display:flex;gap:8px;justify-content:flex-end}
+.conflict-resolution-more{border:1px dashed var(--line);border-radius:10px;padding:10px}
+.conflict-resolution-more-body{margin-top:8px}
+.proposal-footer-wrap{display:flex;flex-direction:column;gap:6px;max-width:1040px;margin:0 auto;width:100%}
+.proposal-footer-status{font-size:12px;color:var(--muted);text-align:right;line-height:1.4}
+.proposal-footer-wrap .proposal-footer-actions{margin:0;max-width:none;width:100%}
+@media(max-width:760px){.proposal-footer-status{text-align:left}}

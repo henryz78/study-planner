@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight, CalendarDays, CheckCircle2, ChevronLeft, Clock3, ListChecks,
   RefreshCw, SlidersHorizontal, Sparkles,
@@ -136,8 +136,12 @@ export function AdjustmentIntentDialog({
   const subjects = useMemo(() => Array.from(new Set(state.taskGroups.map(group => group.subject))).sort(), [state.taskGroups])
   const initialAction: ActiveAction = tutorialMode ? 'center' : initialReason === 'too-tiring' ? 'load' : initialReason === 'future-replan' ? 'replan' : initialDate ? 'current-conflicts' : 'center'
 
+  const lastInitKeyRef = useRef<string>()
   useEffect(() => {
     if (!open) return
+    const initKey = `${initialAction}|${defaultDate}|${tutorialMode ?? 'none'}`
+    if (lastInitKeyRef.current === initKey) return
+    lastInitKeyRef.current = initKey
     setActiveAction(initialAction)
     setAvailabilityStart(defaultDate)
     setAvailabilityEnd(defaultDate)

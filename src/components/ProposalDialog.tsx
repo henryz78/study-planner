@@ -189,26 +189,28 @@ export function ProposalDialog({
     onApply(selected)
   }
 
-  const primaryLabel = !selected
-    ? '查看可解决方式'
+  const primaryLabel = '应用方案'
+  const primaryStatus = !selected
+    ? '请选择一个方案后再应用'
     : unresolvedCount > 0
-      ? `处理 ${unresolvedCount} 个待决定问题`
+      ? `还有 ${unresolvedCount} 个问题未处理，需先完成下方决定`
       : externalDecision === 'change-goal'
-        ? '返回修改目标'
+        ? '需先返回修改目标，再重新生成预览'
         : externalDecision === 'change-capacity'
-          ? '返回修改可用时间'
+          ? '需先调整可用时间，再重新生成预览'
           : requiresRecalculation
-            ? '按这些选择重新计算'
-            : explicitLocalOperation
-              ? requestedActionLabel
-            : selected.movements.length || selected.structuralChanges.length
-              ? '应用预览中的改动'
-              : '确认并保存'
+            ? '将按你的选择重新计算并再次预览'
+            : selected.infeasible
+              ? '该方案存在未解决问题，请先完成决定'
+              : '确认后将应用预览中的改动'
 
-  const footer = <div className="proposal-footer-actions">
-    <button className="proposal-cancel-action" onClick={onClose}>取消</button>
-    {keepLabel && <button className={`secondary-button proposal-keep-action ${tutorialMode ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode || undefined} onClick={() => tutorialMode ? onTutorialBlocked?.('教程中先应用推荐方案') : onKeep()}>{keepLabel}</button>}
-    <button className="primary-button" data-tutorial-target="proposal-primary" data-tutorial-action="proposal-primary" onClick={handlePrimary}>{primaryLabel}</button>
+  const footer = <div className="proposal-footer-wrap">
+    <div className="proposal-footer-status">{primaryStatus}</div>
+    <div className="proposal-footer-actions">
+      <button className="proposal-cancel-action" onClick={onClose}>取消</button>
+      {keepLabel && <button className={`secondary-button proposal-keep-action ${tutorialMode ? 'tutorial-disabled-control' : ''}`} aria-disabled={tutorialMode || undefined} onClick={() => tutorialMode ? onTutorialBlocked?.('教程中先应用推荐方案') : onKeep()}>{keepLabel}</button>}
+      <button className="primary-button" data-tutorial-target="proposal-primary" data-tutorial-action="proposal-primary" onClick={handlePrimary}>{primaryLabel}</button>
+    </div>
   </div>
 
   return <Modal open={open} title="计划调整预览" onClose={onClose} footer={footer} wide mobileFullscreen className="proposal-modal">
@@ -368,8 +370,9 @@ function ConflictResolutionChoices({ issue, actions, selected, onSelect }: {
   selected?: ConflictResolutionAction
   onSelect: (action: ConflictResolutionAction) => void
 }) {
-  const direct = actions.filter(action => ['accept-once', 'system-find-another-date', 'keep-original', 'leave-unscheduled', 'unlock-and-move'].includes(action))
-  const condition = actions.filter(action => action === 'change-goal' || action === 'change-capacity')
+  const [showMore, setShowMore] = useState(false)
+  const primary = actions.filter(action => ['accept-once', 'system-find-another-date', 'keep-original', 'leave-unscheduled'].includes(action))
+  const more = actions.filter(action => ['unlock-and-move', 'change-goal', 'change-capacity'].includes(action))
   const withdraw = actions.filter(action => action === 'cancel-change')
   const render = (items: ConflictResolutionAction[]) => <div className="conflict-resolution-grid">{items.map(action => <button
     type="button"
@@ -379,8 +382,14 @@ function ConflictResolutionChoices({ issue, actions, selected, onSelect }: {
   ><strong>{resolutionLabel(action, issue)}</strong><small>{resolutionDescription(action, issue)}</small></button>)}</div>
 
   return <div className="conflict-resolution-sections">
-    {direct.length > 0 && <section><header><strong>{isTodayIncomingIssue(issue) ? '怎么处理这些任务' : '处理当前任务'}</strong><span>{isTodayIncomingIssue(issue) ? '四选一；其他任务和永久设置不受影响' : '选择这些未完成任务接下来怎么办'}</span></header>{render(direct)}</section>}
-    {condition.length > 0 && <section><header><strong>修改产生冲突的条件</strong><span>{isTodayIncomingIssue(issue) ? '增加今天可用时间后，返回这里重新生成预览' : '离开预览修改后，系统会重新检查'}</span></header>{render(condition)}</section>}
+    {primary.length > 0 && <section><header><strong>{isTodayIncomingIssue(issue) ? '怎么处理这些任务' : '处理当前任务'}</strong><span>{isTodayIncomingIssue(issue) ? '四选一；其他任务和永久设置不受影响' : '选择这些未完成任务接下来怎么办'}</span></header>{render(primary)}</section>}
+    {more.length > 0 && <section className="conflict-resolution-more">
+      <button type="button" className="text-button" onClick={() => setShowMore(value => !value)}>{showMore ? '收起更多选项' : `更多选项（${more.length}）`}</button>
+      {showMore && <div className="conflict-resolution-more-body">
+        <header><strong>修改产生冲突的条件或解锁</strong><span>包含解锁任务、调整目标或可用时间；按需展开</span></header>
+        {render(more)}
+      </div>}
+    </section>}
     {withdraw.length > 0 && <section className="conflict-resolution-withdraw"><header><strong>不继续这部分调整</strong><span>只撤销与本问题相关的变化</span></header>{render(withdraw)}</section>}
   </div>
 }
